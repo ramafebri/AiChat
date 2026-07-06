@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<app-metadata xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      AiChat is an on-device AI assistant powered by Gemma.
+      It lets users create, view, edit, and delete markdown skill files that
+      provide system-level instruction context for the AI model.
+      Exposed AppFunctions allow agents to manage these skills on behalf of
+      the user using natural language commands.
+    -->
+    <description>
+        AiChat is an on-device AI chat application that uses Gemma for local
+        inference. It supports user-defined skill files written in markdown to
+        customise AI behaviour. Agents can list, read, create, update, and
+        delete skill files through the provided AppFunctions.
+    </description>
+</app-metadata>
