@@ -1,19 +1,41 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Local config
 local.properties
 
-# Local ML model files (too large for GitHub; download separately)
-/models/
-*.litertlm
+# Android Studio / IntelliJ
+*.iml
+.idea/
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/runConfigurations.xml
+
+# NDK / native
+.externalNativeBuild/
+.cxx/
+
+# Captures & outputs
+/captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing (never commit)
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kotlin
+.kotlin/
+
+# Logs & dumps
+*.log
+*.hprof
