@@ -76,6 +76,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.core)
     // MediaPipe LLM Inference (Gemma 4 .litertlm)
     implementation(libs.mediapipe.tasks.genai)
+    implementation(libs.mediapipe.tasks.vision)
     // Firebase AI Logic (Gemini)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.ai)

@@ -1,6 +1,9 @@
 package com.rama.aichat.inference
 
 import android.content.Context
+import android.graphics.Bitmap
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.genai.llminference.GraphOptions
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.rama.aichat.data.model.ChatMessage
@@ -28,6 +31,7 @@ class GemmaInferenceManager(
         private const val MAX_TOKENS = 1024
         private const val TOP_K = 40
         private const val TEMPERATURE = 0.8f
+        private const val MAX_NUM_IMAGES = 1
     }
 
     sealed interface LoadState {
@@ -59,6 +63,7 @@ class GemmaInferenceManager(
             .setModelPath(modelFile.absolutePath)
             .setMaxTokens(MAX_TOKENS)
             .setMaxTopK(TOP_K)
+            .setMaxNumImages(MAX_NUM_IMAGES)
             .build()
         llmInference = LlmInference.createFromOptions(context, options)
         createSession()
@@ -70,12 +75,15 @@ class GemmaInferenceManager(
         createSession()
     }
 
-    fun generateResponse(prompt: String): Flow<String> = callbackFlow {
+    fun generateResponse(prompt: String, image: Bitmap? = null): Flow<String> = callbackFlow {
         val activeSession = checkNotNull(session) {
             "Conversation is not ready. Call resetConversation() first."
         }
         val formattedPrompt = buildPrompt(conversationHistory, prompt)
         activeSession.addQueryChunk(formattedPrompt)
+        if (image != null) {
+            activeSession.addImage(BitmapImageBuilder(image).build())
+        }
         activeSession.generateResponseAsync { partialResult, done ->
             partialResult?.let { trySend(it) }
             if (done) close()
@@ -100,6 +108,11 @@ class GemmaInferenceManager(
             LlmInferenceSession.LlmInferenceSessionOptions.builder()
                 .setTopK(TOP_K)
                 .setTemperature(TEMPERATURE)
+                .setGraphOptions(
+                    GraphOptions.builder()
+                        .setEnableVisionModality(true)
+                        .build()
+                )
                 .build()
         )
     }

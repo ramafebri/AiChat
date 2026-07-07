@@ -1,6 +1,17 @@
 package com.rama.aichat.ui.chat
 
+import android.Manifest
+import android.net.Uri
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +28,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,15 +52,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rama.aichat.data.model.ChatMessage
 import com.rama.aichat.inference.GemmaInferenceManager
 import com.rama.aichat.ui.components.MessageBubble
+import com.rama.aichat.ui.components.rememberBitmapFromPath
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +84,69 @@ fun ChatScreenV2(
 
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    var isAttachMenuExpanded by remember { mutableStateOf(false) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val pendingPreviewBitmap by rememberBitmapFromPath(uiState.pendingImagePath, maxDimension = 512)
+    val recordingPulse = rememberInfiniteTransition(label = "recordingPulse")
+    val pulseScale by recordingPulse.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+    val pulseAlpha by recordingPulse.animateFloat(
+        initialValue = 0.65f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+    val recordAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.startVoiceInput()
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Microphone permission is required for voice prompts.")
+            }
+        }
+    }
+    val pickImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.onImagePicked(uri)
+        }
+    }
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val capturedUri = pendingCameraUri
+        pendingCameraUri = null
+        if (success && capturedUri != null) {
+            viewModel.onImagePicked(capturedUri)
+        }
+    }
+    val requestCameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val captureUri = viewModel.createCameraCaptureUri()
+            pendingCameraUri = captureUri
+            takePictureLauncher.launch(captureUri)
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Camera permission is required to take photos.")
+            }
+        }
+    }
 
     LaunchedEffect(uiState.messages.size, uiState.isGenerating) {
         val targetIndex = uiState.messages.size + (if (uiState.isGenerating) 1 else 0)
@@ -150,6 +239,47 @@ fun ChatScreenV2(
 
                     HorizontalDivider()
 
+                    if (uiState.pendingImagePath != null || uiState.isAttachingImage) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (uiState.isAttachingImage) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = "Attaching image...",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            } else {
+                                pendingPreviewBitmap?.let { bitmap ->
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "Selected image preview",
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(MaterialTheme.shapes.medium),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                                IconButton(
+                                    onClick = viewModel::clearPendingImage,
+                                    enabled = !uiState.isGenerating
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove image"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -161,14 +291,110 @@ fun ChatScreenV2(
                             value = uiState.inputText,
                             onValueChange = viewModel::updateInput,
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Type a message…") },
-                            enabled = !uiState.isGenerating,
+                            placeholder = {
+                                Text(
+                                    uiState.recordingHint
+                                        ?: if (uiState.isRecording) "Listening..." else "Type a message..."
+                                )
+                            },
+                            enabled = !uiState.isGenerating && !uiState.isRecording,
                             maxLines = 4,
                             shape = MaterialTheme.shapes.large
                         )
+                        Box {
+                            IconButton(
+                                onClick = { isAttachMenuExpanded = true },
+                                enabled = !uiState.isGenerating &&
+                                    !uiState.isAttachingImage &&
+                                    !uiState.isRecording &&
+                                    uiState.currentSessionId != null
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AddPhotoAlternate,
+                                    contentDescription = "Attach image"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = isAttachMenuExpanded,
+                                onDismissRequest = { isAttachMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Choose photo") },
+                                    onClick = {
+                                        isAttachMenuExpanded = false
+                                        pickImageLauncher.launch(
+                                            PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Take photo") },
+                                    onClick = {
+                                        isAttachMenuExpanded = false
+                                        val hasPermission = ContextCompat.checkSelfPermission(
+                                            activity,
+                                            Manifest.permission.CAMERA
+                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        if (hasPermission) {
+                                            val captureUri = viewModel.createCameraCaptureUri()
+                                            pendingCameraUri = captureUri
+                                            takePictureLauncher.launch(captureUri)
+                                        } else {
+                                            requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                if (uiState.isRecording) {
+                                    viewModel.stopVoiceInput()
+                                } else {
+                                    val hasPermission = ContextCompat.checkSelfPermission(
+                                        activity,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (hasPermission) {
+                                        viewModel.startVoiceInput()
+                                    } else {
+                                        recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
+                            },
+                            enabled = !uiState.isGenerating && uiState.currentSessionId != null
+                        ) {
+                            Icon(
+                                modifier = if (uiState.isRecording) {
+                                    Modifier.graphicsLayer(
+                                        scaleX = pulseScale,
+                                        scaleY = pulseScale,
+                                        alpha = pulseAlpha
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = if (uiState.isRecording) {
+                                    "Stop voice input"
+                                } else {
+                                    "Start voice input"
+                                },
+                                tint = if (uiState.isRecording) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
                         IconButton(
                             onClick = viewModel::sendMessage,
-                            enabled = !uiState.isGenerating && uiState.inputText.isNotBlank()
+                            enabled = !uiState.isGenerating &&
+                                !uiState.isRecording &&
+                                !uiState.isAttachingImage &&
+                                (uiState.inputText.isNotBlank() || uiState.pendingImagePath != null)
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,

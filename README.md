@@ -32,6 +32,8 @@ Both chat modes can **manage skills through natural language** — the AI can li
 - Downloads the Gemma 4 E4B LiteRT model (~3.5 GB) on first use from Hugging Face, or accepts a sideloaded model file.  
 - Shows download and initialization progress in the UI.  
 - Uses a JSON-based tool-calling protocol so Gemma can perform the same skill operations as Gemini.  
+- Supports multimodal prompts: users can pick an image from gallery or capture with camera, then send it with optional text.  
+- Includes on-device voice input for prompt dictation in Gemma chat.  
 - Works offline once the model is on the device.
 
 ### Skills
@@ -222,11 +224,30 @@ Example prompts:
 
 ---
 
+### Gemma multimodal prompts
+
+In **On-device (Gemma)** chat you can:
+
+- Tap the image attachment button to choose a photo from gallery.
+- Take a new photo with the camera and send it directly.
+- Send image-only prompts (the app uses a default instruction if text is empty).
+- Combine image + text for more specific analysis questions.
+
+Example prompts:
+
+- *“Describe this image.”*
+- *“What objects are visible, and what is likely happening?”*
+- *“Extract important details from this photo.”*
+
+---
+
 ## Permissions
 
 | Permission | Purpose |
 |------------|---------|
 | `INTERNET` | Gemini API, Gemma model download |
+| `RECORD_AUDIO` | Voice input in Gemma chat |
+| `CAMERA` | Capture photos to attach in Gemma chat |
 
 ---
 

@@ -34,7 +34,12 @@ class ChatRepository @Inject constructor(
         return session.id
     }
 
-    suspend fun addMessage(sessionId: String, content: String, role: String) {
+    suspend fun addMessage(
+        sessionId: String,
+        content: String,
+        role: String,
+        imagePath: String? = null
+    ) {
         realm.write {
             val session = query<ChatSession>("id == $0", sessionId).first().find()
             session?.messages?.add(
@@ -43,6 +48,7 @@ class ChatRepository @Inject constructor(
                     this.content = content
                     this.role = role
                     this.timestamp = System.currentTimeMillis()
+                    this.imagePath = imagePath
                 }
             )
             session?.updatedAt = System.currentTimeMillis()

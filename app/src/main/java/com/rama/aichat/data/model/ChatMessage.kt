@@ -8,4 +8,5 @@ class ChatMessage : EmbeddedRealmObject {
     var content: String = ""
     var role: String = "user"
     var timestamp: Long = System.currentTimeMillis()
+    var imagePath: String? = null
 }

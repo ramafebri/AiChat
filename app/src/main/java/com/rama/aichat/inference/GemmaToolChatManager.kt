@@ -1,5 +1,6 @@
 package com.rama.aichat.inference
 
+import android.graphics.Bitmap
 import com.rama.aichat.appfunctions.SkillFunctionCatalog
 import com.rama.aichat.data.model.ChatMessage
 import kotlinx.coroutines.flow.Flow
@@ -35,12 +36,20 @@ class GemmaToolChatManager @Inject constructor(
         gemmaInferenceManager.initialize()
     }
 
-    fun generateResponse(history: List<ChatMessage>, userMessage: String): Flow<String> = flow {
+    fun generateResponse(
+        history: List<ChatMessage>,
+        userMessage: String,
+        image: Bitmap? = null
+    ): Flow<String> = flow {
         val runtimeHistory = history.toMutableList()
         var prompt = buildInitialPrompt(userMessage)
 
         repeat(MAX_TOOL_CALLS_PER_TURN + 1) { iteration ->
-            val rawResponse = generateSingleResponse(runtimeHistory, prompt).trim()
+            val rawResponse = generateSingleResponse(
+                history = runtimeHistory,
+                prompt = prompt,
+                image = if (iteration == 0) image else null
+            ).trim()
             if (rawResponse.isBlank()) {
                 if (iteration == MAX_TOOL_CALLS_PER_TURN) {
                     emit("I could not complete your request right now.")
@@ -91,10 +100,14 @@ class GemmaToolChatManager @Inject constructor(
         }
     }
 
-    private suspend fun generateSingleResponse(history: List<ChatMessage>, prompt: String): String {
+    private suspend fun generateSingleResponse(
+        history: List<ChatMessage>,
+        prompt: String,
+        image: Bitmap?
+    ): String {
         gemmaInferenceManager.resetConversation(history)
         val full = StringBuilder()
-        gemmaInferenceManager.generateResponse(prompt).collect { chunk ->
+        gemmaInferenceManager.generateResponse(prompt, image).collect { chunk ->
             full.append(chunk)
         }
         return full.toString()
