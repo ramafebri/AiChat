@@ -113,7 +113,7 @@ App metadata in `app_metadata.xml` describes the app’s purpose for the Android
 | DI | Hilt |
 | Local database | Realm Kotlin |
 | Cloud AI | Firebase AI Logic (Gemini) |
-| On-device AI | MediaPipe Tasks GenAI |
+| On-device AI | MediaPipe Tasks GenAI + Tasks Vision |
 | Agent API | Android AppFunctions |
 | Async | Kotlin Coroutines, Flow |
 | Serialization | Kotlinx Serialization |
@@ -260,6 +260,11 @@ Defined in `GemmaInferenceManager`:
 - Max tokens: `1024`  
 - Top-K: `40`  
 - Temperature: `0.8`  
+
+MediaPipe dependencies used for Gemma multimodal chat:
+
+- `com.google.mediapipe:tasks-genai:0.10.27`
+- `com.google.mediapipe:tasks-vision:latest.release`
 
 ### Gemini model
 
