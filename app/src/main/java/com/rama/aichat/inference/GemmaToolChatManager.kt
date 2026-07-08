@@ -42,62 +42,73 @@ class GemmaToolChatManager @Inject constructor(
         userMessage: String,
         image: Bitmap? = null
     ): Flow<String> = flow {
-        val runtimeHistory = history.toMutableList()
-        var prompt = buildInitialPrompt(userMessage)
+        val lockResult = gemmaInferenceLock.tryWithLock(InferenceOwner.Chat) {
+            val runtimeHistory = history.toMutableList()
+            var prompt = buildInitialPrompt(userMessage)
 
-        repeat(MAX_TOOL_CALLS_PER_TURN + 1) { iteration ->
-            val rawResponse = generateSingleResponse(
-                history = runtimeHistory,
-                prompt = prompt,
-                image = if (iteration == 0) image else null
-            ).trim()
-            if (rawResponse.isBlank()) {
+            repeat(MAX_TOOL_CALLS_PER_TURN + 1) { iteration ->
+                val rawResponse = generateSingleResponse(
+                    history = runtimeHistory,
+                    prompt = prompt,
+                    image = if (iteration == 0) image else null
+                ).trim()
+                if (rawResponse.isBlank()) {
+                    if (iteration == MAX_TOOL_CALLS_PER_TURN) {
+                        emit("I could not complete your request right now.")
+                    }
+                    return@tryWithLock
+                }
+
+                val toolCall = parseToolCall(rawResponse)
+                if (toolCall == null) {
+                    emit(rawResponse)
+                    return@tryWithLock
+                }
+
+                val toolResult = runCatching {
+                    skillFunctionCatalog.execute(toolCall.function, toolCall.args)
+                }.fold(
+                    onSuccess = { data ->
+                        buildJsonObject {
+                            put("function", toolCall.function)
+                            put("ok", true)
+                            put("data", data)
+                        }
+                    },
+                    onFailure = { error ->
+                        buildJsonObject {
+                            put("function", toolCall.function)
+                            put("ok", false)
+                            put("error", error.message ?: "Unknown tool error")
+                        }
+                    }
+                )
+
+                runtimeHistory += ChatMessage().apply {
+                    role = "model"
+                    content = rawResponse
+                }
+                runtimeHistory += ChatMessage().apply {
+                    role = "user"
+                    content = """{"tool_result":$toolResult}"""
+                }
+
                 if (iteration == MAX_TOOL_CALLS_PER_TURN) {
-                    emit("I could not complete your request right now.")
+                    emit("I reached the maximum number of tool calls for this message. Please refine your request.")
+                    return@tryWithLock
                 }
-                return@flow
-            }
 
-            val toolCall = parseToolCall(rawResponse)
-            if (toolCall == null) {
-                emit(rawResponse)
-                return@flow
+                prompt = buildFollowUpPrompt()
             }
+        }
 
-            val toolResult = runCatching {
-                skillFunctionCatalog.execute(toolCall.function, toolCall.args)
-            }.fold(
-                onSuccess = { data ->
-                    buildJsonObject {
-                        put("function", toolCall.function)
-                        put("ok", true)
-                        put("data", data)
-                    }
-                },
-                onFailure = { error ->
-                    buildJsonObject {
-                        put("function", toolCall.function)
-                        put("ok", false)
-                        put("error", error.message ?: "Unknown tool error")
-                    }
-                }
-            )
-
-            runtimeHistory += ChatMessage().apply {
-                role = "model"
-                content = rawResponse
+        if (lockResult.isFailure) {
+            val error = lockResult.exceptionOrNull()
+            if (error is InferenceBusyException) {
+                emit("The model is busy with live camera analysis. Please try again shortly.")
+            } else {
+                throw error ?: IllegalStateException("Inference lock failed.")
             }
-            runtimeHistory += ChatMessage().apply {
-                role = "user"
-                content = """{"tool_result":$toolResult}"""
-            }
-
-            if (iteration == MAX_TOOL_CALLS_PER_TURN) {
-                emit("I reached the maximum number of tool calls for this message. Please refine your request.")
-                return@flow
-            }
-
-            prompt = buildFollowUpPrompt()
         }
     }
 
@@ -106,21 +117,12 @@ class GemmaToolChatManager @Inject constructor(
         prompt: String,
         image: Bitmap?
     ): String {
-        val lockResult = gemmaInferenceLock.tryWithLock(InferenceOwner.Chat) {
-            gemmaInferenceManager.resetConversation(history)
-            val full = StringBuilder()
-            gemmaInferenceManager.generateResponse(prompt, image).collect { chunk ->
-                full.append(chunk)
-            }
-            full.toString()
+        gemmaInferenceManager.resetConversation(history)
+        val full = StringBuilder()
+        gemmaInferenceManager.generateResponse(prompt, image).collect { chunk ->
+            full.append(chunk)
         }
-        return lockResult.getOrElse { error ->
-            if (error is InferenceBusyException) {
-                "The model is busy with live camera analysis. Please try again shortly."
-            } else {
-                throw error
-            }
-        }
+        return full.toString()
     }
 
     private fun buildInitialPrompt(userMessage: String): String {

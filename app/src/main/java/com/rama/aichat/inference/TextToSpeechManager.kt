@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -31,25 +33,30 @@ class TextToSpeechManager @Inject constructor(
     private val _ttsState = MutableStateFlow<TtsState>(TtsState.Uninitialized)
     val ttsState: StateFlow<TtsState> = _ttsState.asStateFlow()
 
+    private val initMutex = Mutex()
     private var textToSpeech: TextToSpeech? = null
     private var isInitialized = false
 
     suspend fun ensureInitialized() = withContext(Dispatchers.Main) {
         if (isInitialized) return@withContext
 
-        val initResult = CompletableDeferred<Boolean>()
-        textToSpeech = TextToSpeech(appContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                textToSpeech?.language = Locale.getDefault()
-                isInitialized = true
-                _ttsState.value = TtsState.Ready
-                initResult.complete(true)
-            } else {
-                _ttsState.value = TtsState.Error("Text-to-speech is not available on this device.")
-                initResult.complete(false)
+        initMutex.withLock {
+            if (isInitialized) return@withLock
+
+            val initResult = CompletableDeferred<Boolean>()
+            textToSpeech = TextToSpeech(appContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    textToSpeech?.language = Locale.getDefault()
+                    isInitialized = true
+                    _ttsState.value = TtsState.Ready
+                    initResult.complete(true)
+                } else {
+                    _ttsState.value = TtsState.Error("Text-to-speech is not available on this device.")
+                    initResult.complete(false)
+                }
             }
+            initResult.await()
         }
-        initResult.await()
     }
 
     suspend fun speak(text: String) = withContext(Dispatchers.Main) {
@@ -107,13 +114,5 @@ class TextToSpeechManager @Inject constructor(
         if (isInitialized) {
             _ttsState.value = TtsState.Ready
         }
-    }
-
-    fun shutdown() {
-        textToSpeech?.stop()
-        textToSpeech?.shutdown()
-        textToSpeech = null
-        isInitialized = false
-        _ttsState.value = TtsState.Uninitialized
     }
 }

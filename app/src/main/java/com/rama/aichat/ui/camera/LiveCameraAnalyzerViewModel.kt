@@ -164,6 +164,18 @@ class LiveCameraAnalyzerViewModel @Inject constructor(
         }
     }
 
+    fun onScreenExit() {
+        analysisJob?.cancel()
+        voiceInputManager.releaseOwner(VoiceOwner.LiveAnalyzer)
+        textToSpeechManager.stop()
+        viewModelScope.launch {
+            liveCameraManager.unbind()
+        }
+        _uiState.update {
+            it.copy(phase = AnalyzerPhase.Idle, statusMessage = null)
+        }
+    }
+
     private fun onVoiceResult(transcript: String) {
         analysisJob?.cancel()
         analysisJob = viewModelScope.launch {
@@ -250,9 +262,7 @@ class LiveCameraAnalyzerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        analysisJob?.cancel()
-        voiceInputManager.releaseOwner(VoiceOwner.LiveAnalyzer)
-        textToSpeechManager.shutdown()
+        onScreenExit()
         super.onCleared()
     }
 }

@@ -51,7 +51,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,7 +61,7 @@ fun LiveCameraAnalyzerScreen(
     onBack: () -> Unit
 ) {
     val activity = LocalActivity.current as ComponentActivity
-    val viewModel: LiveCameraAnalyzerViewModel = viewModel(viewModelStoreOwner = activity)
+    val viewModel: LiveCameraAnalyzerViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -104,7 +105,7 @@ fun LiveCameraAnalyzerScreen(
             viewModel.bindCamera(previewView, lifecycleOwner)
         }
         onDispose {
-            viewModel.unbindCamera()
+            viewModel.onScreenExit()
         }
     }
 
@@ -115,16 +116,20 @@ fun LiveCameraAnalyzerScreen(
         }
     }
 
-    val recordingPulse = rememberInfiniteTransition(label = "analyzerPulse")
-    val pulseScale by recordingPulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 700),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
+    val pulseScale = if (uiState.phase == AnalyzerPhase.Listening) {
+        val recordingPulse = rememberInfiniteTransition(label = "analyzerPulse")
+        recordingPulse.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.15f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 700),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseScale"
+        ).value
+    } else {
+        1f
+    }
 
     val micEnabled = uiState.isModelReady &&
         uiState.phase != AnalyzerPhase.Analyzing &&

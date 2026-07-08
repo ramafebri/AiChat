@@ -18,10 +18,6 @@ object InferenceModule {
 
     @Provides
     @Singleton
-    fun provideGemmaInferenceLock(): GemmaInferenceLock = GemmaInferenceLock()
-
-    @Provides
-    @Singleton
     fun provideGemmaInferenceManager(
         @ApplicationContext context: Context
     ): GemmaInferenceManager = GemmaInferenceManager(context)

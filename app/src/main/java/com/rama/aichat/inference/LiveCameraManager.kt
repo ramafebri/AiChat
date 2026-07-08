@@ -29,7 +29,8 @@ class LiveCameraManager @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val imageAttachmentManager: ImageAttachmentManager
 ) {
-    private val frameMutex = Mutex()
+    private val bindMutex = Mutex()
+    private val frameLock = Any()
 
     @Volatile
     private var latestFrameBytes: ByteArray? = null
@@ -48,72 +49,80 @@ class LiveCameraManager @Inject constructor(
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
     suspend fun bind(previewView: PreviewView, lifecycleOwner: LifecycleOwner) {
-        withContext(Dispatchers.Main) {
+        bindMutex.withLock {
             if (boundLifecycleOwner === lifecycleOwner && cameraProvider != null) {
-                return@withContext
+                return
             }
             unbindInternal()
 
             val provider = obtainCameraProvider()
-            cameraProvider = provider
-            boundLifecycleOwner = lifecycleOwner
+            withContext(Dispatchers.Main) {
+                cameraProvider = provider
+                boundLifecycleOwner = lifecycleOwner
 
-            val preview = Preview.Builder().build().also {
-                it.surfaceProvider = previewView.surfaceProvider
+                val preview = Preview.Builder().build().also {
+                    it.surfaceProvider = previewView.surfaceProvider
+                }
+
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                    storeLatestFrame(imageProxy)
+                }
+
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    imageAnalysis
+                )
             }
-
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-
-            imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                storeLatestFrame(imageProxy)
-            }
-
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                imageAnalysis
-            )
         }
     }
 
     suspend fun unbind() {
-        withContext(Dispatchers.Main) {
-            unbindInternal()
+        bindMutex.withLock {
+            withContext(Dispatchers.Main) {
+                unbindInternal()
+            }
         }
     }
 
     suspend fun captureFrameBitmap(maxDimension: Int = 512): Bitmap? = withContext(Dispatchers.Default) {
-        frameMutex.withLock {
-            val bytes = latestFrameBytes ?: return@withLock null
-            val width = latestFrameWidth
-            val height = latestFrameHeight
-            val rotation = latestFrameRotation
-            if (width <= 0 || height <= 0) return@withLock null
-
-            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: return@withLock null
-
-            val rotated = if (rotation != 0) {
-                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
-                Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also {
-                    if (it != decoded) {
-                        decoded.recycle()
-                    }
-                }
-            } else {
-                decoded
-            }
-
-            imageAttachmentManager.downscaleBitmap(rotated, maxDimension)
+        val snapshot = synchronized(frameLock) {
+            val bytes = latestFrameBytes ?: return@withContext null
+            FrameSnapshot(
+                bytes = bytes.copyOf(),
+                width = latestFrameWidth,
+                height = latestFrameHeight,
+                rotation = latestFrameRotation
+            )
         }
+
+        if (snapshot.width <= 0 || snapshot.height <= 0) return@withContext null
+
+        val decoded = BitmapFactory.decodeByteArray(snapshot.bytes, 0, snapshot.bytes.size)
+            ?: return@withContext null
+
+        val rotated = if (snapshot.rotation != 0) {
+            val matrix = Matrix().apply { postRotate(snapshot.rotation.toFloat()) }
+            Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also {
+                if (it != decoded) {
+                    decoded.recycle()
+                }
+            }
+        } else {
+            decoded
+        }
+
+        imageAttachmentManager.downscaleBitmap(rotated, maxDimension)
     }
 
     private suspend fun obtainCameraProvider(): ProcessCameraProvider {
-        return withContext(Dispatchers.Main) {
+        return withContext(Dispatchers.IO) {
             ProcessCameraProvider.getInstance(appContext).get()
         }
     }
@@ -122,10 +131,12 @@ class LiveCameraManager @Inject constructor(
         cameraProvider?.unbindAll()
         cameraProvider = null
         boundLifecycleOwner = null
-        latestFrameBytes = null
-        latestFrameWidth = 0
-        latestFrameHeight = 0
-        latestFrameRotation = 0
+        synchronized(frameLock) {
+            latestFrameBytes = null
+            latestFrameWidth = 0
+            latestFrameHeight = 0
+            latestFrameRotation = 0
+        }
     }
 
     private fun storeLatestFrame(imageProxy: ImageProxy) {
@@ -149,10 +160,12 @@ class LiveCameraManager @Inject constructor(
                 jpegStream
             )
 
-            latestFrameBytes = jpegStream.toByteArray()
-            latestFrameWidth = imageProxy.width
-            latestFrameHeight = imageProxy.height
-            latestFrameRotation = imageProxy.imageInfo.rotationDegrees
+            synchronized(frameLock) {
+                latestFrameBytes = jpegStream.toByteArray()
+                latestFrameWidth = imageProxy.width
+                latestFrameHeight = imageProxy.height
+                latestFrameRotation = imageProxy.imageInfo.rotationDegrees
+            }
         } finally {
             imageProxy.close()
         }
@@ -201,4 +214,11 @@ class LiveCameraManager @Inject constructor(
 
         return nv21
     }
+
+    private data class FrameSnapshot(
+        val bytes: ByteArray,
+        val width: Int,
+        val height: Int,
+        val rotation: Int
+    )
 }

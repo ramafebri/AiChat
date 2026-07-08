@@ -24,8 +24,6 @@ class GemmaInferenceLock @Inject constructor() {
     private val _currentOwner = MutableStateFlow<InferenceOwner?>(null)
     val currentOwner: StateFlow<InferenceOwner?> = _currentOwner.asStateFlow()
 
-    fun isIdle(): Boolean = !mutex.isLocked
-
     suspend fun <T> withLock(owner: InferenceOwner, block: suspend () -> T): T {
         return mutex.withLock {
             _currentOwner.value = owner

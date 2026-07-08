@@ -59,17 +59,18 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
     // Realm
     implementation(libs.realm.base)
     // Navigation 3
     implementation(libs.nav3.runtime)
     implementation(libs.nav3.ui)
     implementation(libs.lifecycle.viewmodel.nav3)
-    // ViewModel + Compose
-    implementation(libs.lifecycle.viewmodel.compose)
     // Coroutines
     implementation(libs.coroutines.android)
     // Kotlinx Serialization (for typed Nav3 routes)
