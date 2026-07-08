@@ -14,6 +14,11 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
+enum class VoiceOwner {
+    Chat,
+    LiveAnalyzer
+}
+
 @Singleton
 class VoiceInputManager @Inject constructor(
     @ApplicationContext private val appContext: Context
@@ -24,10 +29,10 @@ class VoiceInputManager @Inject constructor(
 
     sealed interface VoiceState {
         data object Idle : VoiceState
-        data object Listening : VoiceState
-        data class Retrying(val attempt: Int) : VoiceState
-        data class Result(val transcript: String) : VoiceState
-        data class Error(val message: String) : VoiceState
+        data class Listening(val owner: VoiceOwner) : VoiceState
+        data class Retrying(val owner: VoiceOwner, val attempt: Int) : VoiceState
+        data class Result(val owner: VoiceOwner, val transcript: String) : VoiceState
+        data class Error(val owner: VoiceOwner, val message: String) : VoiceState
     }
 
     private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
@@ -36,27 +41,45 @@ class VoiceInputManager @Inject constructor(
     private var speechRecognizer: SpeechRecognizer? = null
     private var timeoutRetryCount = 0
     private var isManualStop = false
+    private var activeOwner: VoiceOwner? = null
 
-    fun startListening() {
-        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
-            _voiceState.value = VoiceState.Error("Speech recognition is not available on this device.")
+    fun startListening(owner: VoiceOwner) {
+        if (activeOwner != null && activeOwner != owner) {
+            _voiceState.value = VoiceState.Error(owner, "Microphone is in use by another screen.")
             return
         }
 
+        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
+            _voiceState.value = VoiceState.Error(owner, "Speech recognition is not available on this device.")
+            return
+        }
+
+        activeOwner = owner
         isManualStop = false
         val recognizer = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(appContext).also {
             speechRecognizer = it
             it.setRecognitionListener(createRecognitionListener())
         }
 
-        _voiceState.value = VoiceState.Listening
+        _voiceState.value = VoiceState.Listening(owner)
         recognizer.startListening(createRecognizerIntent())
     }
 
-    fun stopListening() {
+    fun stopListening(owner: VoiceOwner) {
+        if (activeOwner != owner) return
         isManualStop = true
         speechRecognizer?.stopListening()
+        activeOwner = null
         _voiceState.value = VoiceState.Idle
+    }
+
+    fun releaseOwner(owner: VoiceOwner) {
+        if (activeOwner == owner) {
+            isManualStop = true
+            speechRecognizer?.stopListening()
+            activeOwner = null
+            _voiceState.value = VoiceState.Idle
+        }
     }
 
     fun destroy() {
@@ -64,6 +87,7 @@ class VoiceInputManager @Inject constructor(
         speechRecognizer = null
         timeoutRetryCount = 0
         isManualStop = false
+        activeOwner = null
         _voiceState.value = VoiceState.Idle
     }
 
@@ -98,13 +122,16 @@ class VoiceInputManager @Inject constructor(
                 && timeoutRetryCount < MAX_TIMEOUT_RETRIES
             ) {
                 timeoutRetryCount += 1
-                _voiceState.value = VoiceState.Retrying(timeoutRetryCount)
+                val owner = activeOwner ?: VoiceOwner.Chat
+                _voiceState.value = VoiceState.Retrying(owner, timeoutRetryCount)
                 speechRecognizer?.startListening(createRecognizerIntent())
                 return
             }
 
             timeoutRetryCount = 0
-            _voiceState.value = VoiceState.Error(errorToMessage(error))
+            val owner = activeOwner ?: VoiceOwner.Chat
+            _voiceState.value = VoiceState.Error(owner, errorToMessage(error))
+            activeOwner = null
             _voiceState.value = VoiceState.Idle
         }
 
@@ -115,12 +142,14 @@ class VoiceInputManager @Inject constructor(
                 ?.trim()
                 .orEmpty()
 
+            val owner = activeOwner ?: VoiceOwner.Chat
             if (transcript.isNotEmpty()) {
                 timeoutRetryCount = 0
-                _voiceState.value = VoiceState.Result(transcript)
+                _voiceState.value = VoiceState.Result(owner, transcript)
             } else {
-                _voiceState.value = VoiceState.Error("No speech recognized. Please try again.")
+                _voiceState.value = VoiceState.Error(owner, "No speech recognized. Please try again.")
             }
+            activeOwner = null
             _voiceState.value = VoiceState.Idle
         }
 

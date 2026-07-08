@@ -2,6 +2,7 @@ package com.rama.aichat.di
 
 import android.content.Context
 import com.rama.aichat.appfunctions.SkillFunctionCatalog
+import com.rama.aichat.inference.GemmaInferenceLock
 import com.rama.aichat.inference.GemmaInferenceManager
 import com.rama.aichat.inference.GemmaToolChatManager
 import dagger.Module
@@ -17,6 +18,10 @@ object InferenceModule {
 
     @Provides
     @Singleton
+    fun provideGemmaInferenceLock(): GemmaInferenceLock = GemmaInferenceLock()
+
+    @Provides
+    @Singleton
     fun provideGemmaInferenceManager(
         @ApplicationContext context: Context
     ): GemmaInferenceManager = GemmaInferenceManager(context)
@@ -25,6 +30,11 @@ object InferenceModule {
     @Singleton
     fun provideGemmaToolChatManager(
         gemmaInferenceManager: GemmaInferenceManager,
-        skillFunctionCatalog: SkillFunctionCatalog
-    ): GemmaToolChatManager = GemmaToolChatManager(gemmaInferenceManager, skillFunctionCatalog)
+        skillFunctionCatalog: SkillFunctionCatalog,
+        gemmaInferenceLock: GemmaInferenceLock
+    ): GemmaToolChatManager = GemmaToolChatManager(
+        gemmaInferenceManager,
+        skillFunctionCatalog,
+        gemmaInferenceLock
+    )
 }

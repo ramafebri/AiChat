@@ -14,3 +14,6 @@ data class SkillEditRoute(val fileName: String? = null) : NavKey
 
 @Serializable
 data object GemmaChatRoute : NavKey
+
+@Serializable
+data object LiveCameraAnalyzerRoute : NavKey

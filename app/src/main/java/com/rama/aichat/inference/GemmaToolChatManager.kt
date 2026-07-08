@@ -19,7 +19,8 @@ import javax.inject.Singleton
 @Singleton
 class GemmaToolChatManager @Inject constructor(
     private val gemmaInferenceManager: GemmaInferenceManager,
-    private val skillFunctionCatalog: SkillFunctionCatalog
+    private val skillFunctionCatalog: SkillFunctionCatalog,
+    private val gemmaInferenceLock: GemmaInferenceLock
 ) {
     companion object {
         private const val MAX_TOOL_CALLS_PER_TURN = 5
@@ -105,12 +106,21 @@ class GemmaToolChatManager @Inject constructor(
         prompt: String,
         image: Bitmap?
     ): String {
-        gemmaInferenceManager.resetConversation(history)
-        val full = StringBuilder()
-        gemmaInferenceManager.generateResponse(prompt, image).collect { chunk ->
-            full.append(chunk)
+        val lockResult = gemmaInferenceLock.tryWithLock(InferenceOwner.Chat) {
+            gemmaInferenceManager.resetConversation(history)
+            val full = StringBuilder()
+            gemmaInferenceManager.generateResponse(prompt, image).collect { chunk ->
+                full.append(chunk)
+            }
+            full.toString()
         }
-        return full.toString()
+        return lockResult.getOrElse { error ->
+            if (error is InferenceBusyException) {
+                "The model is busy with live camera analysis. Please try again shortly."
+            } else {
+                throw error
+            }
+        }
     }
 
     private fun buildInitialPrompt(userMessage: String): String {

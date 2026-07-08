@@ -17,8 +17,10 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.rama.aichat.navigation.GemmaChatRoute
 import com.rama.aichat.navigation.HomeRoute
+import com.rama.aichat.navigation.LiveCameraAnalyzerRoute
 import com.rama.aichat.navigation.SkillEditRoute
 import com.rama.aichat.navigation.SkillListRoute
+import com.rama.aichat.ui.camera.LiveCameraAnalyzerScreen
 import com.rama.aichat.ui.chat.ChatScreen
 import com.rama.aichat.ui.chat.ChatScreenV2
 import com.rama.aichat.ui.chat.ChatViewModel
@@ -102,7 +104,17 @@ class MainActivity : ComponentActivity() {
                                 ChatScreen(onOpenDrawer = openDrawer)
                             }
                             entry<GemmaChatRoute> {
-                                ChatScreenV2(onOpenDrawer = openDrawer)
+                                ChatScreenV2(
+                                    onOpenDrawer = openDrawer,
+                                    onOpenLiveAnalyzer = {
+                                        backStack.add(LiveCameraAnalyzerRoute)
+                                    }
+                                )
+                            }
+                            entry<LiveCameraAnalyzerRoute> {
+                                LiveCameraAnalyzerScreen(
+                                    onBack = { backStack.removeLastOrNull() }
+                                )
                             }
                             entry<SkillListRoute> {
                                 SkillListScreen(

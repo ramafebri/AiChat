@@ -8,8 +8,11 @@ import com.rama.aichat.data.model.ChatSession
 import com.rama.aichat.data.repository.ChatRepository
 import com.rama.aichat.inference.GemmaInferenceManager
 import com.rama.aichat.inference.GemmaToolChatManager
+import com.rama.aichat.inference.GemmaInferenceLock
 import com.rama.aichat.inference.ImageAttachmentManager
+import com.rama.aichat.inference.InferenceOwner
 import com.rama.aichat.inference.VoiceInputManager
+import com.rama.aichat.inference.VoiceOwner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
@@ -31,7 +34,8 @@ data class GemmaChatUiState(
     val pendingImagePath: String? = null,
     val isAttachingImage: Boolean = false,
     val streamingText: String = "",
-    val error: String? = null
+    val error: String? = null,
+    val inferenceBusy: Boolean = false
 )
 
 @HiltViewModel
@@ -39,7 +43,8 @@ class GemmaChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val gemmaToolChatManager: GemmaToolChatManager,
     private val imageAttachmentManager: ImageAttachmentManager,
-    private val voiceInputManager: VoiceInputManager
+    private val voiceInputManager: VoiceInputManager,
+    private val gemmaInferenceLock: GemmaInferenceLock
 ) : ViewModel() {
     companion object {
         private const val IMAGE_ONLY_DEFAULT_PROMPT = "Describe this image."
@@ -63,6 +68,17 @@ class GemmaChatViewModel @Inject constructor(
         }
         observeVoiceInput()
         observeSessions()
+        observeInferenceLock()
+    }
+
+    private fun observeInferenceLock() {
+        viewModelScope.launch {
+            gemmaInferenceLock.currentOwner.collectLatest { owner ->
+                _uiState.update {
+                    it.copy(inferenceBusy = owner == InferenceOwner.LiveAnalyzer)
+                }
+            }
+        }
     }
 
     private fun observeVoiceInput() {
@@ -73,11 +89,13 @@ class GemmaChatViewModel @Inject constructor(
                         _uiState.update { it.copy(isRecording = false, recordingHint = null) }
                     }
 
-                    VoiceInputManager.VoiceState.Listening -> {
+                    is VoiceInputManager.VoiceState.Listening -> {
+                        if (voiceState.owner != VoiceOwner.Chat) return@collectLatest
                         _uiState.update { it.copy(isRecording = true, recordingHint = "Listening...") }
                     }
 
                     is VoiceInputManager.VoiceState.Retrying -> {
+                        if (voiceState.owner != VoiceOwner.Chat) return@collectLatest
                         _uiState.update {
                             it.copy(
                                 isRecording = true,
@@ -87,6 +105,7 @@ class GemmaChatViewModel @Inject constructor(
                     }
 
                     is VoiceInputManager.VoiceState.Result -> {
+                        if (voiceState.owner != VoiceOwner.Chat) return@collectLatest
                         _uiState.update {
                             it.copy(
                                 inputText = voiceState.transcript,
@@ -98,6 +117,7 @@ class GemmaChatViewModel @Inject constructor(
                     }
 
                     is VoiceInputManager.VoiceState.Error -> {
+                        if (voiceState.owner != VoiceOwner.Chat) return@collectLatest
                         _uiState.update {
                             it.copy(
                                 isRecording = false,
@@ -179,6 +199,10 @@ class GemmaChatViewModel @Inject constructor(
         val typedMessage = state.inputText.trim()
         val imagePath = state.pendingImagePath
         if ((typedMessage.isEmpty() && imagePath == null) || state.isGenerating || state.isAttachingImage) return
+        if (state.inferenceBusy) {
+            _uiState.update { it.copy(error = "Model is busy with live camera analysis.") }
+            return
+        }
         val userMessage = typedMessage.ifBlank { IMAGE_ONLY_DEFAULT_PROMPT }
 
         val isFirstMessage = state.messages.isEmpty()
@@ -235,16 +259,16 @@ class GemmaChatViewModel @Inject constructor(
 
     fun startVoiceInput() {
         val state = _uiState.value
-        if (state.isGenerating) return
-        voiceInputManager.startListening()
+        if (state.isGenerating || state.inferenceBusy) return
+        voiceInputManager.startListening(VoiceOwner.Chat)
     }
 
     fun stopVoiceInput() {
-        voiceInputManager.stopListening()
+        voiceInputManager.stopListening(VoiceOwner.Chat)
     }
 
     override fun onCleared() {
-        voiceInputManager.destroy()
+        voiceInputManager.releaseOwner(VoiceOwner.Chat)
         super.onCleared()
     }
 }

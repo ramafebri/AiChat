@@ -70,6 +70,24 @@ class ImageAttachmentManager @Inject constructor(
                 ?: throw IllegalStateException("Failed to decode image for inference.")
         }
 
+    fun downscaleBitmap(source: Bitmap, maxDimension: Int = 512): Bitmap {
+        if (source.width <= maxDimension && source.height <= maxDimension) {
+            return source
+        }
+        val sampleSize = calculateInSampleSize(
+            width = source.width,
+            height = source.height,
+            maxDimension = maxDimension
+        )
+        val targetWidth = source.width / sampleSize
+        val targetHeight = source.height / sampleSize
+        val scaled = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+        if (scaled != source) {
+            source.recycle()
+        }
+        return scaled
+    }
+
     private fun calculateInSampleSize(width: Int, height: Int, maxDimension: Int): Int {
         if (width <= 0 || height <= 0 || maxDimension <= 0) return 1
         val largestDimension = max(width, height)

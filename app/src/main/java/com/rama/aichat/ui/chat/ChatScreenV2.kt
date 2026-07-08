@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -75,7 +76,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreenV2(
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onOpenLiveAnalyzer: () -> Unit = {}
 ) {
     val activity = LocalContext.current as ComponentActivity
     val viewModel: GemmaChatViewModel = viewModel(viewModelStoreOwner = activity)
@@ -182,6 +184,17 @@ fun ChatScreenV2(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onOpenLiveAnalyzer,
+                        enabled = loadState is GemmaInferenceManager.LoadState.Ready &&
+                            !uiState.isGenerating &&
+                            !uiState.inferenceBusy
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = "Live camera analyzer"
+                        )
+                    }
                     IconButton(onClick = viewModel::createNewSession) {
                         Icon(
                             imageVector = Icons.Default.Add,
